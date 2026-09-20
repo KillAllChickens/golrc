@@ -1,0 +1,126 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log"
+	"path/filepath"
+	"sync"
+	"time"
+)
+
+// processFile is whatever network-based operation you're actually doing
+// (upload, API call, etc). It returns an error on failure so the retry
+// loop below knows to try again.
+func processFile(ctx context.Context, path string) error {
+	// TODO: replace with your real network operation
+	// return doNetworkThing(ctx, path)
+	return nil
+}
+
+// processWithRetry keeps retrying a single file every 2s until it succeeds,
+// the context is cancelled, or maxAttempts is hit. This runs inside a
+// goroutine that's holding one semaphore slot — so while it's retrying,
+// the other 9 slots are free to pick up new files.
+func processWithRetry(ctx context.Context, path string, maxAttempts int) error {
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := processFile(ctx, path); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			log.Printf("failed %s (attempt %d/%d): %v", path, attempt, maxAttempts, err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+			// loop and retry
+		}
+	}
+	return fmt.Errorf("giving up on %s after %d attempts: %w", path, maxAttempts, lastErr)
+}
+
+func run(root string, concurrency int) error {
+	ctx := context.Background()
+
+	sem := make(chan struct{}, concurrency) // limits in-flight goroutines to `concurrency`
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var errs []error
+
+	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		sem <- struct{}{} // blocks here once 10 are already in flight
+		wg.Add(1)
+
+		go func(p string) {
+			defer wg.Done()
+			defer func() { <-sem }() // release the slot when this file is fully done (incl. retries)
+
+			if err := processWithRetry(ctx, p, 5); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+			}
+		}(path)
+
+		return nil
+	})
+
+	wg.Wait() // wait for all in-flight + queued goroutines to finish
+
+	if walkErr != nil {
+		return walkErr
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+func main() {
+	if err := run(".", 10); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("done")
+}
+
+func fetchLyrics(client *resty.Client, artist, track, album string, duration int) (lrclibResp, error) {
+	var lrcResp lrclibResp
+
+	params := map[string]string{
+		"artist_name": artist,
+		"track_name":  track,
+		"duration":    strconv.Itoa(duration),
+	}
+	if album != "" {
+		params["album_name"] = album
+	}
+
+	resp, err := client.R().
+		SetQueryParams(params).
+		SetResult(&lrcResp).
+		Get("https://lrclib.net/api/get")
+
+	if err != nil {
+		return lrcResp, err
+	}
+	if !resp.IsStatusSuccess() {
+		if resp.StatusCode() == 404 {
+			return lrcResp, errNotFound
+		}
+		return lrcResp, fmt.Errorf("bad status %d", resp.StatusCode())
+	}
+
+	return lrcResp, nil
+}

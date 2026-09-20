@@ -1,0 +1,21 @@
+package exmaple
+
+import (
+	"fmt"
+	"os"
+)
+
+func init() {
+	registerFlags()
+
+	for _, comm := range allCommands {
+		rootCmd.AddCommand(comm)
+	}
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
