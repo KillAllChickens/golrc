@@ -17,7 +17,7 @@ var rootCmd = &cobra.Command{
 var generateCmd = &cobra.Command{
 	Use:     "gen",
 	Short:   "Generate lrc files recursevly",
-	Example: `urly gen file.flac`,
+	Example: `golrc gen /path/to/music/`,
 	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		file := args[0]
