@@ -60,11 +60,11 @@ func processFile(ctx context.Context, path string) error {
 
 	lrcResp, err = fetchLyrics(client, f.Artist(), f.Title(), f.Album(), duration)
 	if hasNoLyrics(lrcResp, err) && f.Album() != "" {
-		log.Printf("no usable lyrics with album %q for %s, retrying without album", f.Album(), path)
+		// log.Printf("no usable lyrics with album %q for %s, retrying without album", f.Album(), path)
 		lrcResp, err = fetchLyrics(client, f.Artist(), f.Title(), "", duration)
 	}
 	if hasNoLyrics(lrcResp, err) {
-		log.Printf("falling back to search for %s", path)
+		// log.Printf("falling back to search for %s", path)
 		lrcResp, err = searchLyrics(client, f.Artist(), f.Title(), duration)
 	}
 	if err != nil {
@@ -76,7 +76,7 @@ func processFile(ctx context.Context, path string) error {
 		lyrics = lrcResp.PlainLyrics
 	}
 	if lyrics == "" {
-		log.Printf("lrclib matched %s but both plain and synced lyrics were empty", path)
+		// log.Printf("lrclib matched %s but both plain and synced lyrics were empty", path)
 		return nil
 	}
 
@@ -87,7 +87,7 @@ func processFile(ctx context.Context, path string) error {
 	if err := os.Rename(tmp, lrcPath); err != nil {
 		return fmt.Errorf("renaming lrc for %s: %w", path, err)
 	}
-	log.Printf("wrote %s", lrcPath)
+	// log.Printf("wrote %s", lrcPath)
 
 	return nil
 }
@@ -131,7 +131,7 @@ func abs(n int) int {
 func fetchLyrics(client *resty.Client, artist, track, album string, duration int) (lrclibResp, error) {
 	var lrcResp lrclibResp
 
-	log.Printf("querying: artist=%q track=%q album=%q duration=%d", artist, track, album, duration)
+	// log.Printf("querying: artist=%q track=%q album=%q duration=%d", artist, track, album, duration)
 
 	params := map[string]string{
 		"artist_name": artist,
@@ -150,8 +150,8 @@ func fetchLyrics(client *resty.Client, artist, track, album string, duration int
 		return lrcResp, err
 	}
 	if !resp.IsStatusSuccess() {
-		log.Printf("lrclib response for artist=%q track=%q album=%q: status=%d body=%s",
-			artist, track, album, resp.StatusCode(), resp.String())
+		// log.Printf("lrclib response for artist=%q track=%q album=%q: status=%d body=%s",
+		// 	artist, track, album, resp.StatusCode(), resp.String())
 		if resp.StatusCode() == 404 {
 			return lrcResp, errNotFound
 		}
@@ -216,7 +216,7 @@ func Run(root string, concurrency int) error {
 		go func(p string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := processWithRetry(ctx, p, 3); err != nil {
+			if err := processWithRetry(ctx, p, 10); err != nil {
 				mu.Lock()
 				errs = append(errs, err)
 				mu.Unlock()

@@ -22,7 +22,7 @@ var generateCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		file := args[0]
 
-		lrcgen.Run(file, 10)
+		lrcgen.Run(file, 50)
 	},
 }
 
