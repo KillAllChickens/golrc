@@ -32,7 +32,7 @@ var allCommands = []*cobra.Command{generateCmd}
 
 func init() {
 	generateCmd.Flags().IntP("threads", "t", 10, "concurrent threads to use")
-	generateCmd.Flags().BoolP("rename", "r", false, "concurrent threads to use")
+	generateCmd.Flags().BoolP("rename", "r", false, "rename the file: \"XX - Title\"")
 
 
 	for _, comm := range allCommands {
