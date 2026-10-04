@@ -22,9 +22,9 @@ var generateCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		file := args[0]
 
-		threads, _ := cmd.Flags().GetInt("threads")
+		// threads, _ := cmd.Flags().GetInt("threads")
 
-		lrcgen.Run(file, threads)
+		lrcgen.Run(cmd, file)
 	},
 }
 
@@ -32,6 +32,8 @@ var allCommands = []*cobra.Command{generateCmd}
 
 func init() {
 	generateCmd.Flags().IntP("threads", "t", 10, "concurrent threads to use")
+	generateCmd.Flags().BoolP("rename", "r", false, "concurrent threads to use")
+
 
 	for _, comm := range allCommands {
 		rootCmd.AddCommand(comm)

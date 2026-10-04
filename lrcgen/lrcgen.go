@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/wtolson/go-taglib"
 	"resty.dev/v3"
 )
@@ -30,18 +31,49 @@ type lrclibResp struct {
 	SyncedLyrics string `json:"syncedLyrics"`
 }
 
-func processFile(ctx context.Context, path string) error {
+func swapExt(path, ext string) string {
+	return strings.TrimSuffix(path, filepath.Ext(path)) + ext
+}
+
+func sanitizeName(s string) string {
+	var badChars = strings.NewReplacer(
+		"/", "-", "\\", "-", ":", "-", "*", "", "?", "",
+		"\"", "'", "<", "", ">", "", "|", "-",
+	)
+	return strings.TrimSpace(badChars.Replace(s))
+}
+
+
+func processFile(ctx context.Context, path string, rename bool) (string, error) {
+	f, err := taglib.Read(path)
+	if err != nil {
+		return path, err
+	}
+	track, title, artist, album := f.Track(), f.Title(), f.Artist(), f.Album()
+	duration := int(f.Length().Seconds())
+	f.Close()
+
+	if rename && title != "" {
+		name := sanitizeName(title)
+		if track > 0 {
+			name = fmt.Sprintf("%02d - %s", track, name)
+		}
+		newPath := filepath.Join(filepath.Dir(path), name+filepath.Ext(path))
+		if newPath != path {
+			if err := os.Rename(path, newPath); err != nil {
+				return path, err
+			}
+			path = newPath
+		}
+	}
+
 	lrcPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".lrc"
 
 	if info, err := os.Stat(lrcPath); err == nil && info.Size() > 0 {
-		return nil
+		return path, nil
 	}
 
-	f, err := taglib.Read(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+
 
 	// fmt.Println("Title:   ", f.Title())
 	// fmt.Println("Artist:  ", f.Artist())
@@ -56,19 +88,18 @@ func processFile(ctx context.Context, path string) error {
 		SetHeader("User-Agent", "GOLRC v0.0.1 (https://github.com/KillAllChickens/golrc)").
 		SetContext(ctx)
 
-	duration := int(f.Length().Seconds())
 
-	lrcResp, err = fetchLyrics(client, f.Artist(), f.Title(), f.Album(), duration)
-	if hasNoLyrics(lrcResp, err) && f.Album() != "" {
+	lrcResp, err = fetchLyrics(client, artist, title, album, duration)
+	if hasNoLyrics(lrcResp, err) && album != "" {
 		// log.Printf("no usable lyrics with album %q for %s, retrying without album", f.Album(), path)
-		lrcResp, err = fetchLyrics(client, f.Artist(), f.Title(), "", duration)
+		lrcResp, err = fetchLyrics(client, artist, title, "", duration)
 	}
 	if hasNoLyrics(lrcResp, err) {
 		// log.Printf("falling back to search for %s", path)
-		lrcResp, err = searchLyrics(client, f.Artist(), f.Title(), duration)
+		lrcResp, err = searchLyrics(client, artist, title, duration)
 	}
 	if err != nil {
-		return err
+		return path, err
 	}
 
 	lyrics := lrcResp.SyncedLyrics
@@ -77,19 +108,19 @@ func processFile(ctx context.Context, path string) error {
 	}
 	if lyrics == "" {
 		// log.Printf("lrclib matched %s but both plain and synced lyrics were empty", path)
-		return nil
+		return path, nil
 	}
 
 	tmp := lrcPath + ".tmp"
 	if err := os.WriteFile(tmp, []byte(lyrics), 0o644); err != nil {
-		return fmt.Errorf("writing lrc for %s: %w", path, err)
+		return path, fmt.Errorf("writing lrc for %s: %w", path, err)
 	}
 	if err := os.Rename(tmp, lrcPath); err != nil {
-		return fmt.Errorf("renaming lrc for %s: %w", path, err)
+		return path, fmt.Errorf("renaming lrc for %s: %w", path, err)
 	}
 	// log.Printf("wrote %s", lrcPath)
 
-	return nil
+	return path, nil
 }
 
 func hasNoLyrics(r lrclibResp, err error) bool {
@@ -160,10 +191,12 @@ func fetchLyrics(client *resty.Client, artist, track, album string, duration int
 	return lrcResp, nil
 }
 
-func processWithRetry(ctx context.Context, path string, maxAttempts int) error {
+func processWithRetry(ctx context.Context, path string, maxAttempts int, rename bool) error {
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		err := processFile(ctx, path)
+		newPath, err := processFile(ctx, path, rename)
+		path = newPath
+
 		if err == nil {
 			return nil
 		}
@@ -186,7 +219,11 @@ func processWithRetry(ctx context.Context, path string, maxAttempts int) error {
 	return fmt.Errorf("giving up on %s after %d attempts: %w", path, maxAttempts, lastErr)
 }
 
-func Run(root string, concurrency int) error {
+func Run(cmd *cobra.Command, root string) error {
+	concurrency, _ := cmd.Flags().GetInt("threads")
+	doRename, _ := cmd.Flags().GetBool("rename")
+
+
 	ctx := context.Background()
 
 	audioExts := map[string]bool{
@@ -216,7 +253,7 @@ func Run(root string, concurrency int) error {
 		go func(p string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			if err := processWithRetry(ctx, p, 10); err != nil {
+			if err := processWithRetry(ctx, p, 10, doRename); err != nil {
 				mu.Lock()
 				errs = append(errs, err)
 				mu.Unlock()
