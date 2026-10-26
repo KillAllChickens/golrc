@@ -3,6 +3,7 @@ module golrc
 go 1.27.1
 
 require (
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/spf13/cobra v1.10.2
 	github.com/wtolson/go-taglib v0.0.0-20210406152913-79209c280058
 	resty.dev/v3 v3.0.0-rc.4
