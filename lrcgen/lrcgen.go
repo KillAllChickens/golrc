@@ -86,6 +86,7 @@ func processFile(ctx context.Context, path string, rename bool) (string, error) 
 
 	client := resty.New().
 		SetHeader("User-Agent", "GOLRC v0.0.1 (https://github.com/KillAllChickens/golrc)").
+		SetHeader("Lrclib-App-Id", "U8ucUsYJaq2dmnX6QrFmJsACPosPmYMXnCQ5wgar7OM").
 		SetContext(ctx)
 
 
